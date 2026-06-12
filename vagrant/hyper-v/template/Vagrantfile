@@ -1,0 +1,44 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+# --- Default Vagrantfile for Hyper-V templates ---
+# Using the default hashicorp bionic64 box
+# -------------------------------------------------
+Vagrant.configure("2") do |config|
+  # --- VM Definitions ---
+  config.vm.define "template-vagrant"
+  config.vm.box = "hashicorp/bionic64"
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+  config.vm.provider "hyperv" do |hv|
+    hv.vmname= "template-hyperv"
+    hv.cpus = 4
+    hv.memory = "1024" # in MB
+    hv.maxmemory = nil # nil -> disabled dynamic memory
+
+    hv.vm_integration_services = {
+      guest_service_interface: true,
+      heartbeat: true,
+      key_value_pair_exchange: true,
+      shutdown: true,
+      time_synchronization: true,
+      vss: false,
+    }
+
+    # --- Unchanged default Hyper-V settings ---
+    # hv.auto_start_action= "Nothing"
+    # hv.auto_stop_action= "ShutDown"
+    # hv.differencing_disk= "" # deprecated
+    # hv.enable_virtualization_extensions= "false"
+    # hv.enable_checkpoints= "true"
+    # hv.enable_automatic_checkpoints= "false"
+    # hv.enable_enhanced_session_mode= "false"
+    # hv.ip_address_timeout= "120"
+    # hv.linked_clone= "false"
+    # hv.mac= ""
+    # hv.vlan_id= ""
+  end
+  # config.vm.provision "shell", inline: <<-SHELL
+  #   apt-get update
+  #   apt-get upgrade -y
+  # SHELL
+end
