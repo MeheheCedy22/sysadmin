@@ -98,6 +98,7 @@ highlight CurSearch ctermbg=red ctermfg=white"
   config.vm.box = "kalilinux/rolling"
   config.vm.box_version = "2026.1.0"
   config.vm.synced_folder ".", "/vagrant", disabled: true
+  config.vm.network "public_network", bridge: "Default Switch"
   config.vm.provider "hyperv" do |hv|
     hv.vmname= VM_HYPERV_NAME
     hv.cpus = 4
