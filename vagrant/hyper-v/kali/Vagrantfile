@@ -1,0 +1,157 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+
+# !!! do NOT change the "2" !!!
+Vagrant.configure("2") do |config|
+  # --- Helper functions ---
+  def apt_install(pkgs)
+    "apt-get install -y #{pkgs.uniq.join(' ')}"
+  end
+
+  def apt_update()
+    "apt-get update"
+  end
+
+  def apt_upgrade()
+    "apt-get upgrade -y"
+  end
+
+# --- Vagrant variables ---
+  SHELL_CUSTOMIZATIONS = <<-'SHELL'
+    SHELL_ADDITIONS="alias lss='ls -alhF --group-directories-first'
+alias ip='ip --color=auto'
+alias grep='grep --color=auto'
+"
+
+    VIM_ADDITIONS="syntax on
+set number
+set hlsearch
+set incsearch
+set ignorecase
+set smartcase
+highlight Search ctermbg=yellow ctermfg=black
+highlight CurSearch ctermbg=red ctermfg=white"
+
+    configure_user_environment() {
+      local user="$1"
+      local home_dir="$2"
+      
+      # Get user's default shell
+      local user_shell=$(getent passwd "$user" | cut -d: -f7)
+      local rc_file="$home_dir/.bashrc"
+      
+      if [[ "$user_shell" =~ "zsh" ]]; then
+        rc_file="$home_dir/.zshrc"
+      fi
+
+      # Write dedicated custom profile file
+      local custom_rc="$home_dir/.shell_custom"
+      echo "$SHELL_ADDITIONS" > "$custom_rc"
+      chown "$user":"$user" "$custom_rc"
+
+      touch "$rc_file"
+      if [[ "$rc_file" == *".bashrc" ]]; then
+        sed -i 's/#force_color_prompt=yes/force_color_prompt=yes/' "$rc_file"
+      fi
+
+      # Only append source link line if it doesn't exist
+      local shell_source_line="source $custom_rc"
+      if ! grep -Fxq "$shell_source_line" "$rc_file"; then
+        echo -e "\n$shell_source_line" >> "$rc_file"
+      fi
+      chown "$user":"$user" "$rc_file"
+
+      # Configure Vim for the user
+      local vimrc="$home_dir/.vimrc"
+      local custom_vimrc="$home_dir/.vimrc_custom"
+      
+      # Write dedicated custom vim file
+      echo "$VIM_ADDITIONS" > "$custom_vimrc"
+      chown "$user":"$user" "$custom_vimrc"
+
+      touch "$vimrc"
+      
+      # Only append source link line if it doesn't exist 
+      local vim_source_line="source $custom_vimrc"
+      if ! grep -Fxq "$vim_source_line" "$vimrc"; then
+        echo -e "\n$vim_source_line" >> "$vimrc"
+      fi
+      chown "$user":"$user" "$vimrc"
+    }
+
+    # Automatically deploy for both environments
+    configure_user_environment "root" "/root"
+    if [ -d /home/vagrant ]; then
+      configure_user_environment "vagrant" "/home/vagrant"
+    fi
+  SHELL
+
+  VM_VAGRANT_NAME = "kali"
+  VM_HYPERV_NAME = "kali-rolling"
+  COMMON_PKGS = %w[
+    bind9-utils dnsutils git htop iptables net-tools network-manager tcpdump tmux vim wget curl
+  ].freeze
+
+  # --- VM Definitions ---
+  config.vm.define VM_VAGRANT_NAME
+  config.vm.box = "kalilinux/rolling"
+  config.vm.box_version = "2026.1.0"
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+  config.vm.provider "hyperv" do |hv|
+    hv.vmname= VM_HYPERV_NAME
+    hv.cpus = 4
+    hv.memory = "2048" # in MB
+    hv.maxmemory = nil # nil -> disabled dynamic memory
+
+    # --- Unchanged default Hyper-V settings ---
+    # hv.auto_start_action= "Nothing"
+    # hv.auto_stop_action= "ShutDown"
+    # hv.differencing_disk= "" # deprecated
+    # hv.enable_virtualization_extensions= "false"
+    # hv.enable_checkpoints= "true"
+    # hv.enable_automatic_checkpoints= "false"
+    # hv.enable_enhanced_session_mode= "false"
+    # hv.ip_address_timeout= "120"
+    # hv.linked_clone= "false"
+    # hv.mac= ""
+    # hv.vlan_id= ""
+    
+    hv.vm_integration_services = {
+      guest_service_interface: true,
+      heartbeat: true,
+      key_value_pair_exchange: true,
+      shutdown: true,
+      time_synchronization: true,
+      vss: false,
+    }
+  end
+
+  # --- Fix Hyper-V boot order using boot trigger ---
+  config.trigger.after :up do |trigger|
+    trigger.name = "Smart Hyper-V boot optimizer"
+    trigger.info = "Checking Hyper-V firmware boot order..."
+    trigger.run = {
+      inline: <<~SCRIPT
+        powershell -NoProfile -Command "
+          if ((Get-VMFirmware -VMName '#{VM_HYPERV_NAME}').BootOrder[0].Device.Name -notmatch '^Hard Drive') {
+              Write-Host 'Boot order unoptimized. Performing a one-time restart to prioritize Hard Disk...';
+              Stop-VM -VMName '#{VM_HYPERV_NAME}' -Force;
+              Set-VMFirmware -VMName '#{VM_HYPERV_NAME}' -FirstBootDevice (Get-VMHardDiskDrive -VMName '#{VM_HYPERV_NAME}')[0];
+              Start-VM -VMName '#{VM_HYPERV_NAME}';
+              Write-Host 'VM is restarting instantly from the hard drive!';
+          } else { Write-Host 'Boot order is already optimized. No restart required.'; }"
+      SCRIPT
+    }
+  end
+
+  # --- Common provisioning for all VMs ---
+  config.vm.provision "shell", 
+  env: { "DEBIAN_FRONTEND" => "noninteractive" },
+  inline: <<-SHELL
+    set -eux
+    #{apt_update}
+    #{apt_install(COMMON_PKGS)}
+    #{SHELL_CUSTOMIZATIONS}
+  SHELL
+end
