@@ -38,3 +38,10 @@ terraform.rc
 
 # --- Vagrant ---
 .vagrant
+
+# -- IDEs ---
+.idea/
+.vscode/
+
+# --- Misc ---
+TODO.md
